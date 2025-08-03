@@ -1,0 +1,170 @@
+diff --git forkSrcPrefix/client/go/outline/config/module.go forkDstPrefix/client/go/outline/config/module.go
+index c3efc100d5287118b671495fa971d0b21216294b..314d6210a63cc5d6569fa5d00976160e589a711c 100644
+--- forkSrcPrefix/client/go/outline/config/module.go
++++ forkDstPrefix/client/go/outline/config/module.go
+@@ -96,8 +96,8 @@ func NewDefaultTransportProvider(tcpDialer transport.StreamDialer, udpDialer tra
+ 	})
+ 
+ 	transports := NewTypeParser(func(ctx context.Context, input ConfigNode) (*TransportPair, error) {
+-		// If parser directive is missing, parse as Shadowsocks for backwards-compatibility.
+-		return parseShadowsocksTransport(ctx, input, streamEndpoints.Parse, packetEndpoints.Parse)
++		// If parser directive is missing, parse as Socks5 for backwards-compatibility.
++		return parseSocks5Transport(ctx, input, streamEndpoints.Parse, packetEndpoints.Parse)
+ 	})
+ 
+ 	// First-Supported support.
+@@ -117,6 +117,11 @@ func NewDefaultTransportProvider(tcpDialer transport.StreamDialer, udpDialer tra
+ 		return parseFirstSupported(ctx, input, packetListeners.Parse)
+ 	})
+ 
++	// socks5 support (currently unused since we use fallback to socks5 in parseSocks5Transport)
++	streamDialers.RegisterSubParser("socks5", func(ctx context.Context, input map[string]any) (*Dialer[transport.StreamConn], error) {
++		return parseSocks5StreamDialer(ctx, input, streamEndpoints.Parse)
++	})
++
+ 	// Shadowsocks support.
+ 	streamDialers.RegisterSubParser("shadowsocks", func(ctx context.Context, input map[string]any) (*Dialer[transport.StreamConn], error) {
+ 		return parseShadowsocksStreamDialer(ctx, input, streamEndpoints.Parse)
+diff --git forkSrcPrefix/client/go/outline/config/config_socks5.go forkDstPrefix/client/go/outline/config/config_socks5.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..54016aaac44b49836396af1928cc4eb57c3c60f0
+--- /dev/null
++++ forkDstPrefix/client/go/outline/config/config_socks5.go
+@@ -0,0 +1,98 @@
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//      http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package config
++
++import (
++	"context"
++	"fmt"
++	"net"
++
++	"github.com/Jigsaw-Code/outline-sdk/transport"
++	"github.com/Jigsaw-Code/outline-sdk/transport/socks5"
++)
++
++// ShadowsocksConfig is the format for the Shadowsocks config. It can specify Dialers or PacketListener.
++type Socks5Config struct {
++	Endpoint ConfigNode
++	User     string
++	Password string
++}
++
++func parseSocks5StreamDialer(ctx context.Context, config ConfigNode, parseSE ParseFunc[*Endpoint[transport.StreamConn]]) (*Dialer[transport.StreamConn], error) {
++	params, err := parseSocks5Config(config)
++	if err != nil {
++		return nil, err
++	}
++	se, err := parseSE(ctx, params.Endpoint)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create StreamEndpoint: %w", err)
++	}
++	sd, err := socks5.NewClient(transport.FuncStreamEndpoint(se.Connect))
++	if err != nil {
++		return nil, fmt.Errorf("failed to create StreamDialer: %w", err)
++	}
++	return &Dialer[transport.StreamConn]{ConnectionProviderInfo{ConnTypeTunneled, se.FirstHop}, sd.DialStream}, nil
++}
++
++func parseSocks5Transport(ctx context.Context, config ConfigNode, parseSE ParseFunc[*Endpoint[transport.StreamConn]], parsePE ParseFunc[*Endpoint[net.Conn]]) (*TransportPair, error) {
++	params, err := parseSocks5Config(config)
++	if err != nil {
++		return nil, err
++	}
++
++	se, err := parseSE(ctx, params.Endpoint)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create StreamEndpoint: %w", err)
++	}
++	sd, err := socks5.NewClient(transport.FuncStreamEndpoint(se.Connect))
++	if err != nil {
++		return nil, fmt.Errorf("failed to create StreamDialer: %w", err)
++	}
++
++	pe, err := parsePE(ctx, params.Endpoint)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create PacketEndpoint: %w", err)
++	}
++	// pl, err := socks5.NewPacketListener(transport.FuncPacketEndpoint(pe.Connect))
++	// if err != nil {
++	// 	return nil, fmt.Errorf("failed to create PacketListener: %w", err)
++	// }
++
++	sd.EnablePacket(&transport.UDPDialer{})
++	// conn, err := client.ListenPacket(context.Background())
++
++	// For the Shadowsocks transport, the prefix only applies to TCP. To use a prefix with UDP, one needs to
++	// specify it in the PacketListener config explicitly. This is to ensure backwards-compatibility.
++	return &TransportPair{
++		&Dialer[transport.StreamConn]{ConnectionProviderInfo{ConnTypeTunneled, se.FirstHop}, sd.DialStream},
++		&PacketListener{ConnectionProviderInfo{ConnTypeTunneled, pe.FirstHop}, sd},
++	}, nil
++}
++
++func parseSocks5Config(node ConfigNode) (*Socks5Config, error) {
++	switch typed := node.(type) {
++	case map[string]any:
++		// If the map has an "endpoint" field, we assume the new format.
++		if _, ok := typed["endpoint"]; ok {
++			config := Socks5Config{}
++			if err := mapToAny(typed, &config); err != nil {
++				return nil, err
++			}
++			return &config, nil
++		} else {
++			return nil, fmt.Errorf("shadowsocks config missing endpoint")
++		}
++	default:
++		return nil, fmt.Errorf("invalid shadowsocks config type %T", typed)
++	}
++}
+diff --git forkSrcPrefix/client/go/outline/client_test.go forkDstPrefix/client/go/outline/client_test.go
+index ceee7986f7ee0bfe4e3d49ca816283333b58bc68..6c8c59859e10edf148d50682a1fc830932946a7e 100644
+--- forkSrcPrefix/client/go/outline/client_test.go
++++ forkDstPrefix/client/go/outline/client_test.go
+@@ -148,6 +148,15 @@ udp:
+ 	require.Equal(t, "example.com:53", result.Client.pl.FirstHop)
+ }
+ 
++func Test_NewTransport_Socks5(t *testing.T) {
++	config := `
++    endpoint: example.com:120`
++	result := NewClient(config)
++	require.Nil(t, result.Error, "Got %v", result.Error)
++	require.Equal(t, "example.com:120", result.Client.sd.FirstHop)
++	require.Equal(t, "example.com:120", result.Client.pl.FirstHop)
++}
++
+ func Test_NewTransport_YAML_Reuse(t *testing.T) {
+ 	config := `
+ $type: tcpudp
+diff --git forkSrcPrefix/go.mod forkDstPrefix/go.mod
+index c8d64de07fa112e4e1f07cd8ad84cc0776034e5f..bb8f93adae3955b41824014c3310327a1d7c6684 100644
+--- forkSrcPrefix/go.mod
++++ forkDstPrefix/go.mod
+@@ -1,8 +1,13 @@
+ module github.com/Jigsaw-Code/outline-apps
+ 
+-go 1.22.0
++go 1.24.0
++
++replace github.com/xtls/libxray => ../libXray
++replace github.com/xtls/xray-core => ../Xray-core
+ 
+ require (
++	github.com/xtls/libxray v0.0.0-00010101000000-000000000000
++	github.com/xtls/xray-core v0.0.0-00010101000000-000000000000
+ 	github.com/Jigsaw-Code/outline-sdk v0.0.18
+ 	github.com/Jigsaw-Code/outline-sdk/x v0.0.0-20250131142109-b32720fa2c3e
+ 	github.com/Wifx/gonetworkmanager/v2 v2.1.0
