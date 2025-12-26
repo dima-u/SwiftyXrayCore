@@ -19,8 +19,8 @@ let package = Package(
     targets: [
         .binaryTarget(
           name: "SwiftyXrayCore",
-          url: "https://github.com/dima-u/SwiftyXrayCore/releases/download/1.0.0/SwiftyXrayCore.xcframework.zip",
-          checksum: "467bb4ec7392f525879a92281f14cbf0b23898dc5afa25b6b1182c45ad4634d5"
+          url: "https://github.com/dima-u/SwiftyXrayCore/releases/download/1.1.0/SwiftyXrayCore.xcframework.zip",
+          checksum: "8cd20a604af0854c2ba18ad64135b33fd5843729b250813a497965dbef2f1275"
         )
     ]
 )

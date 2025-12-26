@@ -5,13 +5,13 @@
 # xray-core
 git clone https://github.com/XTLS/Xray-core.git
 cd Xray-core
-git checkout v24.10.31
+git checkout v25.10.15
 cd ..
 
 #lib xray
 git clone https://github.com/XTLS/libXray.git
 cd libxray/
-git checkout v24.10.31
+git checkout v25.10.15
 # run build script to fetch go deps, gobind etc.
 python3 build/main.py apple gomobile
 cd ..
