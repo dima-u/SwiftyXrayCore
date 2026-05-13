@@ -1,4 +1,10 @@
-# SwiftyXrayCore
+# SwiftyXrayCore (Deprecated)
+
+> **This repository is deprecated and no longer maintained.**
+>
+> The xcframework is now built and released from [dima-u/libXray-apple](https://github.com/dima-u/libXray-apple), which uses a purpose-built Apple-platform fork of Xray-core ([dima-u/Xray-core-apple](https://github.com/dima-u/Xray-core-apple)) — no outline-apps dependency required.
+>
+> Use [SwiftyXrayKit](https://github.com/dima-u/SwiftyXrayKit) 2.0+ which depends on `libXray-apple` directly.
 
 This project provides a Swift wrapper around the Xray core library to enable advanced networking capabilities on iOS and macOS platforms. It includes support for SOCKS5 proxying and integrates seamlessly with Apple's PacketTunnelProvider API.
 
